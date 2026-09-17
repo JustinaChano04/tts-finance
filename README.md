@@ -15,19 +15,33 @@ The first experiment runs a local LLM on [FinQA](https://arxiv.org/abs/2109.0012
 ## Repository structure
 
 ```text
-src/tts_finance/
-  models/local_llm.py   # LLM interface + local Transformers backend
-  tasks/                # dataset interface (base.py) + FinQA loader (finqa.py)
-  strategies/           # inference strategy interface, greedy, sampling
-  verifiers/            # verifier interface + sandboxed Python executor
-  evaluation/           # metrics + evaluator (strategy-agnostic)
-  runner.py             # config -> model -> task -> strategy -> results
-
-configs/baseline.yaml    # experiment configuration
-experiments/run_baseline.py  # CLI entrypoint
-results/                 # one JSON file per experiment run (gitignored)
-analysis/initial_analysis.ipynb  # loads results/, plots accuracy vs. compute
-tests/
+tts-finance/
+├── src/tts_finance/
+│   ├── models/
+│   │   └── local_llm.py         # LLM interface + local Transformers backend
+│   ├── tasks/
+│   │   ├── base.py              # Task interface, FinancialQuestion
+│   │   └── finqa.py             # FinQA loader + prompt construction
+│   ├── strategies/
+│   │   ├── base.py              # InferenceStrategy interface, response parsing
+│   │   ├── greedy.py            # N=1 baseline
+│   │   └── sampling.py          # N samples, majority vote
+│   ├── verifiers/
+│   │   ├── base.py              # Verifier interface
+│   │   └── python_executor.py   # sandboxed Python execution + comparison
+│   ├── evaluation/
+│   │   ├── metrics.py           # pure metric functions
+│   │   └── evaluator.py         # strategy-agnostic aggregation
+│   └── runner.py                # config -> model -> task -> strategy -> results
+│
+├── configs/
+│   └── baseline.yaml            # experiment configuration
+├── experiments/
+│   └── run_baseline.py          # CLI entrypoint
+├── results/                     # one JSON file per experiment run (gitignored)
+├── analysis/
+│   └── initial_analysis.ipynb   # loads results/, plots accuracy vs. compute
+└── tests/                       # pytest suite -- no GPU required
 ```
 
 Every piece is swappable independently: a new strategy (best-of-N, search, adaptive compute) only needs to implement `InferenceStrategy.run`; a new verifier only needs `Verifier.verify`; a new dataset only needs `Task.load` + `Task.build_prompt`. The evaluator consumes `InferenceResult` objects and never knows which strategy produced them.
