@@ -3,7 +3,7 @@
 
 import argparse
 
-from tts_finance.runner import run_experiment
+from runner import run_experiment
 
 
 def main():

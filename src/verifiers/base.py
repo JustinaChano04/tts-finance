@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from tts_finance.tasks.base import FinancialQuestion
+from tasks.base import FinancialQuestion
 
 
 @dataclass

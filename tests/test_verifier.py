@@ -1,5 +1,5 @@
-from tts_finance.tasks.base import FinancialQuestion
-from tts_finance.verifiers.python_executor import PythonExecutorVerifier, check_code_safety
+from tasks.base import FinancialQuestion
+from verifiers.python_executor import PythonExecutorVerifier, check_code_safety
 
 
 def make_question(gold_answer: float) -> FinancialQuestion:

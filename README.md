@@ -16,7 +16,7 @@ The first experiment runs a local LLM on [FinQA](https://arxiv.org/abs/2109.0012
 
 ```text
 tts-finance/
-├── src/tts_finance/
+├── src/
 │   ├── models/
 │   │   └── local_llm.py         # LLM interface + local Transformers backend
 │   ├── tasks/
@@ -121,7 +121,7 @@ Run experiments at several values of N first (`results/` needs more than one JSO
 
 ## Security note on the Python verifier
 
-`PythonExecutorVerifier` executes model-generated code in a separate subprocess (`python -I -S`, empty environment, restricted builtins, no `import`, no `open`/`eval`/`exec`, a wall-clock timeout, and — on POSIX — CPU/memory `rlimit`s). This is defense-in-depth for a research prototype, **not a hardened sandbox**. Don't point it at adversarial input without further isolation (a container or VM) — see the module docstring in `src/tts_finance/verifiers/python_executor.py` for specifics.
+`PythonExecutorVerifier` executes model-generated code in a separate subprocess (`python -I -S`, empty environment, restricted builtins, no `import`, no `open`/`eval`/`exec`, a wall-clock timeout, and — on POSIX — CPU/memory `rlimit`s). This is defense-in-depth for a research prototype, **not a hardened sandbox**. Don't point it at adversarial input without further isolation (a container or VM) — see the module docstring in `src/verifiers/python_executor.py` for specifics.
 
 ## Research roadmap
 

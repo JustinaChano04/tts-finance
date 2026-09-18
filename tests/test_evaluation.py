@@ -1,6 +1,6 @@
-from tts_finance.evaluation.evaluator import Evaluator
-from tts_finance.evaluation import metrics
-from tts_finance.strategies.base import InferenceResult
+from evaluation.evaluator import Evaluator
+from evaluation import metrics
+from strategies.base import InferenceResult
 
 
 def make_result(correct: bool, total_tokens: int = 100, latency: float = 1.0, model_calls: int = 1) -> InferenceResult:

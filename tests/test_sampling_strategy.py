@@ -1,9 +1,9 @@
-from tts_finance.models.local_llm import GenerationResult, LLM
-from tts_finance.strategies.greedy import GreedyStrategy
-from tts_finance.strategies.sampling import SamplingStrategy, majority_vote
-from tts_finance.strategies.base import Solution
-from tts_finance.tasks.base import FinancialQuestion
-from tts_finance.verifiers.python_executor import PythonExecutorVerifier
+from models.local_llm import GenerationResult, LLM
+from strategies.greedy import GreedyStrategy
+from strategies.sampling import SamplingStrategy, majority_vote
+from strategies.base import Solution
+from tasks.base import FinancialQuestion
+from verifiers.python_executor import PythonExecutorVerifier
 
 
 class ScriptedLLM(LLM):

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tts_finance.strategies.base import InferenceResult
+from strategies.base import InferenceResult
 
 
 def accuracy(results: list[InferenceResult]) -> float:

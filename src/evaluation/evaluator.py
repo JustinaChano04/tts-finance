@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from tts_finance.evaluation import metrics
-from tts_finance.strategies.base import InferenceResult
+from evaluation import metrics
+from strategies.base import InferenceResult
 
 
 class Evaluator:

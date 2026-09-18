@@ -1,4 +1,4 @@
-from tts_finance.strategies.base import parse_model_response
+from strategies.base import parse_model_response
 
 
 def test_well_formed_response():

@@ -1,6 +1,6 @@
 """Requires network access to download/cache `wujian123/finqa` from the HF Hub."""
 
-from tts_finance.tasks.finqa import FinQATask
+from tasks.finqa import FinQATask
 
 
 def test_dataset_loads_small_subset():

@@ -15,14 +15,14 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
-from tts_finance.evaluation.evaluator import Evaluator
-from tts_finance.models.local_llm import LocalLLM
-from tts_finance.strategies.base import InferenceResult, InferenceStrategy
-from tts_finance.strategies.greedy import GreedyStrategy
-from tts_finance.strategies.sampling import SamplingStrategy
-from tts_finance.tasks.base import Task
-from tts_finance.tasks.finqa import FinQATask
-from tts_finance.verifiers.python_executor import PythonExecutorVerifier
+from evaluation.evaluator import Evaluator
+from models.local_llm import LocalLLM
+from strategies.base import InferenceResult, InferenceStrategy
+from strategies.greedy import GreedyStrategy
+from strategies.sampling import SamplingStrategy
+from tasks.base import Task
+from tasks.finqa import FinQATask
+from verifiers.python_executor import PythonExecutorVerifier
 
 
 class ModelConfig(BaseModel):

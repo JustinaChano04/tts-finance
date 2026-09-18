@@ -28,8 +28,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from tts_finance.tasks.base import FinancialQuestion
-from tts_finance.verifiers.base import VerificationResult, Verifier
+from tasks.base import FinancialQuestion
+from verifiers.base import VerificationResult, Verifier
 
 _DISALLOWED_CALL_NAMES = {"open", "eval", "exec", "compile", "__import__", "input"}
 

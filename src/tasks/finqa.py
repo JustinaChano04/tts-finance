@@ -13,7 +13,7 @@ import re
 
 from datasets import load_dataset
 
-from tts_finance.tasks.base import FinancialQuestion, Task
+from tasks.base import FinancialQuestion, Task
 
 HF_DATASET_PATH = "wujian123/finqa"
 
@@ -53,7 +53,7 @@ def _parse_gold_answer(qa: dict) -> float | None:
     if isinstance(exe_ans, (int, float)):
         return float(exe_ans)
 
-    raw = str(qa.get("answer", "")).strip()
+    raw = str(qa.gelet("answer", "")).strip()
     raw = raw.replace(",", "").replace("$", "")
     is_percent = raw.endswith("%")
     raw = raw.rstrip("%")

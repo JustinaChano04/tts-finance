@@ -12,9 +12,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Callable
 
-from tts_finance.models.local_llm import GenerationResult, LLM
-from tts_finance.tasks.base import FinancialQuestion
-from tts_finance.verifiers.base import VerificationResult, Verifier
+from models.local_llm import GenerationResult, LLM
+from tasks.base import FinancialQuestion
+from verifiers.base import VerificationResult, Verifier
 
 _CODE_BLOCK_RE = re.compile(r"```(?:python)?\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
 _REASONING_RE = re.compile(r"REASONING:\s*(.*?)(?=CODE:|$)", re.DOTALL | re.IGNORECASE)

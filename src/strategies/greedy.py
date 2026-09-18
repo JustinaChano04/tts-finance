@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from tts_finance.models.local_llm import LLM
-from tts_finance.strategies.base import BuildPrompt, InferenceResult, InferenceStrategy, generate_and_verify
-from tts_finance.tasks.base import FinancialQuestion
-from tts_finance.verifiers.base import Verifier
+from models.local_llm import LLM
+from strategies.base import BuildPrompt, InferenceResult, InferenceStrategy, generate_and_verify
+from tasks.base import FinancialQuestion
+from verifiers.base import Verifier
 
 
 class GreedyStrategy(InferenceStrategy):
