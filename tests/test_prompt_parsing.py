@@ -1,4 +1,6 @@
-from strategies.base import parse_model_response
+import pytest
+
+from strategies.base import has_unclosed_code_block, parse_model_response
 
 
 def test_well_formed_response():
@@ -68,3 +70,35 @@ def test_completely_malformed_response():
     text = "I don't know how to solve this."
     reasoning, code, answer = parse_model_response(text)
     assert code is None
+
+
+@pytest.mark.parametrize("tag", ["python", "py", "python3", "Python", ""])
+def test_fence_language_tag_is_not_part_of_code(tag):
+    text = f"CODE:\n```{tag}\nanswer = 1\n```\nANSWER:\n1\n"
+    _, code, _ = parse_model_response(text)
+    assert code == "answer = 1"
+
+
+def test_code_is_taken_from_block_after_code_marker():
+    text = """REASONING:
+Use ```x = total / count``` to get the average.
+
+CODE:
+```python
+answer = 10 / 2
+```
+"""
+    _, code, _ = parse_model_response(text)
+    assert code == "answer = 10 / 2"
+
+
+def test_truncated_code_block_is_detected():
+    text = "REASONING:\nr\n\nCODE:\n```python\nrevenue = 100\ncost ="
+    _, code, _ = parse_model_response(text)
+    assert code is None
+    assert has_unclosed_code_block(text)
+
+
+def test_missing_code_block_is_not_reported_as_truncated():
+    assert not has_unclosed_code_block("I don't know how to solve this.")
+    assert not has_unclosed_code_block("CODE:\n```python\nanswer = 1\n```\n")

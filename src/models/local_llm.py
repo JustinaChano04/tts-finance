@@ -20,6 +20,8 @@ class GenerationResult:
     input_tokens: int
     output_tokens: int
     latency: float
+    # True when generation stopped at max_new_tokens rather than end-of-sequence.
+    truncated: bool = False
 
 
 class LLM(ABC):
@@ -29,8 +31,7 @@ class LLM(ABC):
         prompt: str,
         temperature: float = 0.0,
         max_new_tokens: int = 512,
-    ) -> GenerationResult:
-        ...
+    ) -> GenerationResult: ...
 
 
 def resolve_device(device: str) -> str:
@@ -96,10 +97,18 @@ class LocalLLM(LLM):
 
         new_tokens = output_ids[0][input_len:]
         text = self.tokenizer.decode(new_tokens, skip_special_tokens=True)
+        eos_ids = self.model.generation_config.eos_token_id
+        if eos_ids is None:
+            eos_ids = self.tokenizer.eos_token_id
+        eos_ids = set(eos_ids) if isinstance(eos_ids, (list, tuple)) else {eos_ids}
+        truncated = (
+            len(new_tokens) >= max_new_tokens and new_tokens[-1].item() not in eos_ids
+        )
 
         return GenerationResult(
             text=text,
             input_tokens=input_len,
             output_tokens=len(new_tokens),
             latency=latency,
+            truncated=truncated,
         )

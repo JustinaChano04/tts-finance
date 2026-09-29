@@ -1,10 +1,19 @@
+import subprocess
+
+import pytest
+
 from tasks.base import FinancialQuestion
 from verifiers.python_executor import PythonExecutorVerifier, check_code_safety
 
 
 def make_question(gold_answer: float) -> FinancialQuestion:
     return FinancialQuestion(
-        id="q1", question="q", pre_text="", post_text="", table=[], gold_answer=gold_answer,
+        id="q1",
+        question="q",
+        pre_text="",
+        post_text="",
+        table=[],
+        gold_answer=gold_answer,
     )
 
 
@@ -32,11 +41,12 @@ def test_execution_error():
     assert "ZeroDivisionError" in result.execution_error
 
 
-def test_syntax_error_rejected_by_safety_check():
+def test_syntax_error_is_its_own_error_type():
     verifier = PythonExecutorVerifier()
     result = verifier.verify("answer = (", make_question(gold_answer=1))
     assert not result.success
-    assert "rejected by safety check" in result.execution_error
+    assert result.error_type == "syntax_error"
+    assert "SyntaxError" in result.execution_error
 
 
 def test_no_answer_variable_assigned():
@@ -50,7 +60,9 @@ def test_timeout():
     verifier = PythonExecutorVerifier(timeout_seconds=1)
     result = verifier.verify("while True:\n    pass", make_question(gold_answer=1))
     assert not result.success
-    assert "timed out" in result.execution_error or "CPU" in (result.execution_error or "")
+    assert "timed out" in result.execution_error or "CPU" in (
+        result.execution_error or ""
+    )
 
 
 def test_disallowed_import_rejected():
@@ -73,3 +85,92 @@ def test_math_module_available_without_import():
     verifier = PythonExecutorVerifier(tolerance=0.01)
     result = verifier.verify("answer = 4.001", make_question(gold_answer=4.0))
     assert result.correct
+
+
+# --- error attribution -------------------------------------------------------
+# Valid code a model would reasonably write must not be reported as a failure.
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "import math\nanswer = math.sqrt(16)",
+        "from math import sqrt\nanswer = sqrt(16)",
+        "answer = 4 if all(x > 0 for x in [1, 2]) and any([1]) else 0",
+        "answer = list(reversed([1, 4]))[0]",
+        "q, r = divmod(9, 5)\nanswer = r",
+        "class A:\n    v = 4\nanswer = A.v",
+        "if __name__ == '__main__':\n    answer = 4",
+        "try:\n    x = 4 / 1\nexcept ZeroDivisionError:\n    x = 0\nanswer = x",
+        "print('debug', end='')\nanswer = 4",
+        "print('{\"ok\": false}')\nanswer = 4",
+    ],
+)
+def test_valid_code_is_not_reported_as_failure(code):
+    result = PythonExecutorVerifier().verify(code, make_question(gold_answer=4))
+    assert result.success, result.execution_error
+    assert result.answer == 4
+    assert result.error_type is None
+
+
+@pytest.mark.parametrize(
+    "code,error_type",
+    [
+        ("", "no_code"),
+        ("answer = (", "syntax_error"),
+        ("import os\nanswer = 1", "safety_reject"),
+        ("answer = ().__class__", "safety_reject"),
+        ("answer = 1 / 0", "runtime_error"),
+        ("x = 5", "no_answer_var"),
+        ("answer = None", "non_numeric"),
+        ("answer = '15%'", "non_numeric"),
+        ("answer = True", "non_numeric"),
+        ("answer = float('nan')", "non_numeric"),
+    ],
+)
+def test_each_failure_path_sets_error_type(code, error_type):
+    result = PythonExecutorVerifier().verify(code, make_question(gold_answer=1))
+    assert not result.success
+    assert result.error_type == error_type
+    assert result.error_source == "model"
+
+
+def test_timeout_error_type():
+    verifier = PythonExecutorVerifier(timeout_seconds=1)
+    result = verifier.verify("while True:\n    pass", make_question(gold_answer=1))
+    assert result.error_type == "timeout"
+    assert result.error_source == "model"
+
+
+def test_executor_crash_is_attributed_to_harness(monkeypatch):
+    def crashed_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="boom")
+
+    monkeypatch.setattr(subprocess, "run", crashed_run)
+    result = PythonExecutorVerifier().verify("answer = 1", make_question(gold_answer=1))
+    assert not result.success
+    assert result.error_type == "harness_error"
+    assert result.error_source == "harness"
+
+
+# --- scoring ------------------------------------------------------------------
+
+
+def test_strict_mode_rejects_percent_scale():
+    verifier = PythonExecutorVerifier(match_mode="strict")
+    result = verifier.verify("answer = 15.0", make_question(gold_answer=0.15))
+    assert result.success
+    assert not result.correct
+
+
+@pytest.mark.parametrize("answer,gold", [(15.0, 0.15), (0.2469, 24.69)])
+def test_percent_scale_mode_accepts_100x(answer, gold):
+    verifier = PythonExecutorVerifier(match_mode="percent_scale")
+    result = verifier.verify(f"answer = {answer}", make_question(gold_answer=gold))
+    assert result.correct
+
+
+def test_percent_scale_mode_does_not_forgive_units():
+    verifier = PythonExecutorVerifier(match_mode="percent_scale")
+    result = verifier.verify("answer = 3576000", make_question(gold_answer=3576))
+    assert not result.correct

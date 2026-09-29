@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from models.local_llm import LLM
-from strategies.base import BuildPrompt, InferenceResult, InferenceStrategy, Solution, generate_and_verify
+from strategies.base import (
+    BuildPrompt,
+    InferenceResult,
+    InferenceStrategy,
+    Solution,
+    generate_and_verify,
+)
 from tasks.base import FinancialQuestion
 from verifiers.base import Verifier
+from verifiers.matching import cluster_answers
 
 
 def majority_vote(trajectories: list[Solution], tolerance: float) -> float | None:
@@ -15,21 +22,14 @@ def majority_vote(trajectories: list[Solution], tolerance: float) -> float | Non
     answers = [
         s.verification.answer
         for s in trajectories
-        if s.verification and s.verification.success and s.verification.answer is not None
+        if s.verification
+        and s.verification.success
+        and s.verification.answer is not None
     ]
     if not answers:
         return None
 
-    clusters: list[list[float]] = []
-    for answer in sorted(answers):
-        for cluster in clusters:
-            if abs(answer - cluster[-1]) <= tolerance * max(abs(cluster[-1]), 1.0):
-                cluster.append(answer)
-                break
-        else:
-            clusters.append([answer])
-
-    best = max(clusters, key=len)
+    best = max(cluster_answers(answers, tolerance), key=len)
     return sum(best) / len(best)
 
 
@@ -56,29 +56,30 @@ class SamplingStrategy(InferenceStrategy):
         prompt = build_prompt(question)
         trajectories = [
             generate_and_verify(
-                question, model, verifier, prompt,
-                temperature=self.temperature, max_new_tokens=self.max_new_tokens,
+                question,
+                model,
+                verifier,
+                prompt,
+                temperature=self.temperature,
+                max_new_tokens=self.max_new_tokens,
             )
             for _ in range(self.num_samples)
         ]
 
         final_answer = majority_vote(trajectories, self.tolerance)
-        correct = (
-            final_answer is not None
-            and question.gold_answer is not None
-            and abs(final_answer - question.gold_answer) <= self.tolerance * max(abs(question.gold_answer), 1.0)
-        )
 
         return InferenceResult(
             question_id=question.id,
             final_answer=final_answer,
-            correct=correct,
+            correct=verifier.matches(final_answer, question),
+            gold_answer=question.gold_answer,
             trajectories=trajectories,
             model_calls=len(trajectories),
             input_tokens=sum(s.generation.input_tokens for s in trajectories),
             output_tokens=sum(s.generation.output_tokens for s in trajectories),
             total_tokens=sum(
-                s.generation.input_tokens + s.generation.output_tokens for s in trajectories
+                s.generation.input_tokens + s.generation.output_tokens
+                for s in trajectories
             ),
             latency=sum(s.generation.latency for s in trajectories),
         )

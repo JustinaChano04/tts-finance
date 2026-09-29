@@ -22,6 +22,7 @@ from strategies.greedy import GreedyStrategy
 from strategies.sampling import SamplingStrategy
 from tasks.base import Task
 from tasks.finqa import FinQATask
+from verifiers.matching import MatchMode
 from verifiers.python_executor import PythonExecutorVerifier
 
 
@@ -47,6 +48,9 @@ class StrategyConfig(BaseModel):
 class VerifierConfig(BaseModel):
     timeout_seconds: float = 5.0
     tolerance: float = 0.01
+    # "percent_scale" also accepts answer == gold*100 or gold/100, because
+    # FinQA's gold labels mix percent and decimal scales. See verifiers/matching.py.
+    match_mode: MatchMode = "percent_scale"
 
 
 class OutputConfig(BaseModel):
@@ -95,16 +99,22 @@ def _result_to_dict(result: InferenceResult) -> dict:
 def run_experiment(config_path: str) -> Path:
     cfg = load_config(config_path)
 
-    print(f"Loading model {cfg.model.name} (device={cfg.model.device}, dtype={cfg.model.dtype})...")
+    print(
+        f"Loading model {cfg.model.name} (device={cfg.model.device}, dtype={cfg.model.dtype})..."
+    )
     model = LocalLLM(cfg.model.name, device=cfg.model.device, dtype=cfg.model.dtype)
 
     task = build_task(cfg.dataset)
-    print(f"Loading dataset {cfg.dataset.name}:{cfg.dataset.split} (max_examples={cfg.dataset.max_examples})...")
+    print(
+        f"Loading dataset {cfg.dataset.name}:{cfg.dataset.split} (max_examples={cfg.dataset.max_examples})..."
+    )
     questions = task.load()
     print(f"Loaded {len(questions)} questions.")
 
     verifier = PythonExecutorVerifier(
-        timeout_seconds=cfg.verifier.timeout_seconds, tolerance=cfg.verifier.tolerance
+        timeout_seconds=cfg.verifier.timeout_seconds,
+        tolerance=cfg.verifier.tolerance,
+        match_mode=cfg.verifier.match_mode,
     )
     strategy = build_strategy(cfg.strategy, cfg.model, cfg.verifier)
 
@@ -113,10 +123,14 @@ def run_experiment(config_path: str) -> Path:
         result = strategy.run(question, model, verifier, task.build_prompt)
         results.append(result)
         status = "correct" if result.correct else "incorrect"
-        print(f"[{i}/{len(questions)}] {question.id}: {status} (final_answer={result.final_answer})")
+        print(
+            f"[{i}/{len(questions)}] {question.id}: {status} (final_answer={result.final_answer})"
+        )
 
-    metrics = Evaluator().evaluate(results)
-    print(f"Metrics: {metrics}")
+    metrics = Evaluator(
+        tolerance=cfg.verifier.tolerance, match_mode=cfg.verifier.match_mode
+    ).evaluate(results)
+    print(f"Metrics: {json.dumps(metrics, indent=2)}")
 
     timestamp = datetime.datetime.now(datetime.timezone.utc)
     experiment_id = (
@@ -132,6 +146,8 @@ def run_experiment(config_path: str) -> Path:
         "strategy": cfg.strategy.name,
         "num_samples": cfg.strategy.num_samples,
         "temperature": cfg.model.temperature,
+        "max_new_tokens": cfg.model.max_new_tokens,
+        "verifier": cfg.verifier.model_dump(),
         "metrics": metrics,
         "examples": [_result_to_dict(r) for r in results],
     }

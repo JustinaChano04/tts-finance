@@ -41,6 +41,12 @@ CODE:
 
 ANSWER:
 <the final numeric answer>
+
+Rules for the code:
+- Assign the final result to `answer` as a plain number (int or float), not a string.
+- Express percentages and ratios as decimals: 15.2% becomes 0.152.
+- Keep the units used in the question and table (e.g. if values are in millions, answer in millions).
+- Do not import anything except `math`.
 """
 
 
@@ -53,7 +59,7 @@ def _parse_gold_answer(qa: dict) -> float | None:
     if isinstance(exe_ans, (int, float)):
         return float(exe_ans)
 
-    raw = str(qa.gelet("answer", "")).strip()
+    raw = str(qa.get("answer", "")).strip()
     raw = raw.replace(",", "").replace("$", "")
     is_percent = raw.endswith("%")
     raw = raw.rstrip("%")

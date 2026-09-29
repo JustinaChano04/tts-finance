@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from models.local_llm import LLM
-from strategies.base import BuildPrompt, InferenceResult, InferenceStrategy, generate_and_verify
+from strategies.base import (
+    BuildPrompt,
+    InferenceResult,
+    InferenceStrategy,
+    generate_and_verify,
+)
 from tasks.base import FinancialQuestion
 from verifiers.base import Verifier
 
@@ -21,19 +26,27 @@ class GreedyStrategy(InferenceStrategy):
     ) -> InferenceResult:
         prompt = build_prompt(question)
         solution = generate_and_verify(
-            question, model, verifier, prompt,
-            temperature=0.0, max_new_tokens=self.max_new_tokens,
+            question,
+            model,
+            verifier,
+            prompt,
+            temperature=0.0,
+            max_new_tokens=self.max_new_tokens,
         )
         verification = solution.verification
 
         return InferenceResult(
             question_id=question.id,
-            final_answer=verification.answer if verification and verification.success else None,
+            final_answer=(
+                verification.answer if verification and verification.success else None
+            ),
             correct=bool(verification and verification.correct),
+            gold_answer=question.gold_answer,
             trajectories=[solution],
             model_calls=1,
             input_tokens=solution.generation.input_tokens,
             output_tokens=solution.generation.output_tokens,
-            total_tokens=solution.generation.input_tokens + solution.generation.output_tokens,
+            total_tokens=solution.generation.input_tokens
+            + solution.generation.output_tokens,
             latency=solution.generation.latency,
         )
