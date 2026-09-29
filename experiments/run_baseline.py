@@ -7,8 +7,12 @@ from runner import run_experiment
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run a test-time scaling FinQA experiment.")
-    parser.add_argument("--config", required=True, help="Path to an experiment YAML config.")
+    parser = argparse.ArgumentParser(
+        description="Run a test-time scaling FinQA experiment."
+    )
+    parser.add_argument(
+        "--config", required=True, help="Path to an experiment YAML config."
+    )
     args = parser.parse_args()
     run_experiment(args.config)
 
