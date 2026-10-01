@@ -39,6 +39,8 @@ class VerificationResult:
     stdout: str | None = None
     error_type: ErrorType | None = None
     error_source: ErrorSource | None = None
+    # `answer` was never assigned, so the value of the code's final expression was used.
+    recovered_from_expression: bool = False
 
     @classmethod
     def failure(

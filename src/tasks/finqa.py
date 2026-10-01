@@ -44,6 +44,7 @@ ANSWER:
 
 Rules for the code:
 - Assign the final result to `answer` as a plain number (int or float), not a string.
+- Variable names must start with a letter or underscore (use `shares_2013`, not `2013_shares`).
 - Express percentages and ratios as decimals: 15.2% becomes 0.152.
 - Keep the units used in the question and table (e.g. if values are in millions, answer in millions).
 - Do not import anything except `math`.

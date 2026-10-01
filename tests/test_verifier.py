@@ -174,3 +174,29 @@ def test_percent_scale_mode_does_not_forgive_units():
     verifier = PythonExecutorVerifier(match_mode="percent_scale")
     result = verifier.verify("answer = 3576000", make_question(gold_answer=3576))
     assert not result.correct
+
+
+def test_final_expression_is_recovered_when_answer_not_assigned():
+    code = "total = 136104\nrisk = 1244659\ntotal / risk"
+    result = PythonExecutorVerifier().verify(code, make_question(gold_answer=0.10935))
+    assert result.success, result.execution_error
+    assert result.recovered_from_expression
+    assert result.answer == pytest.approx(136104 / 1244659)
+
+
+def test_explicit_answer_is_not_flagged_as_recovered():
+    result = PythonExecutorVerifier().verify("answer = 1\nanswer", make_question(gold_answer=1))
+    assert result.success
+    assert not result.recovered_from_expression
+
+
+@pytest.mark.parametrize("code", ["x = 5", "x = 5\nprint(x)", "x = 5\nif x:\n    x"])
+def test_no_recovery_without_a_final_expression_value(code):
+    result = PythonExecutorVerifier().verify(code, make_question(gold_answer=5))
+    assert not result.success
+    assert result.error_type == "no_answer_var"
+
+
+def test_recovered_expression_still_goes_through_safety_check():
+    result = PythonExecutorVerifier().verify("x = 1\n().__class__", make_question(gold_answer=1))
+    assert result.error_type == "safety_reject"

@@ -18,6 +18,10 @@ RLIMIT_NPROC isn't enforced) and relies on the AST check to catch dangerous
 calls rather than blocking them at the OS level. Do not run this against
 adversarial input without further hardening (e.g. a real container/VM).
 
+Notebook-style code that ends in a bare expression without assigning `answer`
+is recovered by assigning that expression to `answer` before running; the
+result is flagged `recovered_from_expression` so it stays distinguishable.
+
 Error attribution: every failure carries an `error_type`. The allowed subset
 is deliberately broad (common builtins, exception classes, `import math`,
 `if __name__ == "__main__":`) so that valid code a model would reasonably
@@ -135,6 +139,32 @@ def check_code_safety(code: str) -> tuple[bool, str | None]:
     return True, None
 
 
+def _assigns_answer(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, ast.Name) and node.id == "answer" and isinstance(node.ctx, ast.Store)
+        for node in ast.walk(tree)
+    )
+
+
+def recover_final_expression(code: str) -> str | None:
+    """Notebook-style code ends with a bare expression (`ratio`) instead of
+    `answer = ratio`. If `answer` is never assigned and the last statement is
+    such an expression, return the code with that statement assigned to
+    `answer`; otherwise None. A bare `print(...)` is not a result.
+    """
+    tree = ast.parse(code)
+    last = tree.body[-1] if tree.body else None
+    if not isinstance(last, ast.Expr) or _assigns_answer(tree):
+        return None
+    call = last.value
+    if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "print":
+        return None
+    tree.body[-1] = ast.copy_location(
+        ast.Assign(targets=[ast.Name(id="answer", ctx=ast.Store())], value=last.value), last
+    )
+    return ast.unparse(ast.fix_missing_locations(tree))
+
+
 class PythonExecutorVerifier(Verifier):
     def __init__(
         self,
@@ -157,6 +187,11 @@ class PythonExecutorVerifier(Verifier):
             ast.parse(code)
         except SyntaxError as e:
             return VerificationResult.failure("syntax_error", f"SyntaxError: {e}")
+
+        recovered_code = recover_final_expression(code)
+        recovered = recovered_code is not None
+        if recovered:
+            code = recovered_code
 
         is_safe, reason = check_code_safety(code)
         if not is_safe:
@@ -233,6 +268,7 @@ class PythonExecutorVerifier(Verifier):
             answer=answer,
             correct=self.matches(answer, question),
             stdout=proc.stdout,
+            recovered_from_expression=recovered,
         )
 
 
