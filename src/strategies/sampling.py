@@ -12,12 +12,15 @@ from strategies.base import (
 )
 from tasks.base import FinancialQuestion
 from verifiers.base import Verifier
-from verifiers.matching import cluster_answers
+from verifiers.matching import MatchMode, vote_groups
 
 
-def majority_vote(trajectories: list[Solution], tolerance: float) -> float | None:
-    """Clusters successfully-executed answers within `tolerance` and returns
-    the mean of the largest cluster. `None` if nothing executed successfully.
+def majority_vote(
+    trajectories: list[Solution], tolerance: float, mode: MatchMode = "strict"
+) -> float | None:
+    """Groups successfully-executed answers (see `vote_groups`) and returns the
+    largest group's value; ties go to the earliest-sampled group. `None` if
+    nothing executed successfully.
     """
     answers = [
         s.verification.answer
@@ -29,8 +32,8 @@ def majority_vote(trajectories: list[Solution], tolerance: float) -> float | Non
     if not answers:
         return None
 
-    best = max(cluster_answers(answers, tolerance), key=len)
-    return sum(best) / len(best)
+    best = min(vote_groups(answers, tolerance, mode), key=lambda g: (-g.size, g.first_index))
+    return best.value
 
 
 class SamplingStrategy(InferenceStrategy):
@@ -66,7 +69,7 @@ class SamplingStrategy(InferenceStrategy):
             for _ in range(self.num_samples)
         ]
 
-        final_answer = majority_vote(trajectories, self.tolerance)
+        final_answer = majority_vote(trajectories, self.tolerance, verifier.match_mode)
 
         return InferenceResult(
             question_id=question.id,

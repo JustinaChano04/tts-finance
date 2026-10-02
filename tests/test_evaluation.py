@@ -114,7 +114,7 @@ def test_sample_tag_for_failed_sample_uses_error_type():
     [
         ([10, 10, 5], (), "vote_correct"),
         ([10, 5, 5], (), "vote_lost"),
-        ([5, 10], (), "tie_lost"),  # tie goes to the smaller-valued cluster
+        ([5, 10], (), "tie_lost"),  # tie goes to the first-sampled group
         ([5, 5, 7], (), "none_correct"),
         ([], ("runtime_error", "no_code"), "all_failed"),
     ],

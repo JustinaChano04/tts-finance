@@ -55,6 +55,9 @@ class VerifierConfig(BaseModel):
 
 class OutputConfig(BaseModel):
     results_dir: str = "results/"
+    # Subfolder of results_dir for this run, e.g. "validation-20q". Runs meant
+    # to be compared (one N sweep) should share a group.
+    run_group: str | None = None
 
 
 class ExperimentConfig(BaseModel):
@@ -140,6 +143,7 @@ def run_experiment(config_path: str) -> Path:
 
     output = {
         "experiment_id": experiment_id,
+        "run_group": cfg.output.run_group,
         "timestamp": timestamp.isoformat(),
         "model": cfg.model.name,
         "dataset": f"{cfg.dataset.name}:{cfg.dataset.split}",
@@ -153,6 +157,8 @@ def run_experiment(config_path: str) -> Path:
     }
 
     results_dir = Path(cfg.output.results_dir)
+    if cfg.output.run_group:
+        results_dir = results_dir / cfg.output.run_group
     results_dir.mkdir(parents=True, exist_ok=True)
     out_path = results_dir / f"{experiment_id}.json"
     with open(out_path, "w") as f:

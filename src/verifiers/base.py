@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from tasks.base import FinancialQuestion
+from verifiers.matching import MatchMode
 
 # Why a sample produced no usable answer. Every failure path sets exactly one.
 ErrorType = Literal[
@@ -58,6 +59,8 @@ class VerificationResult:
 
 
 class Verifier(ABC):
+    match_mode: MatchMode = "strict"
+
     @abstractmethod
     def verify(self, code: str, question: FinancialQuestion) -> VerificationResult: ...
 

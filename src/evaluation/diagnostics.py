@@ -20,8 +20,8 @@ from verifiers.matching import (
     PERCENT_FACTORS,
     UNIT_FACTORS,
     MatchMode,
-    cluster_answers,
     matches_gold,
+    vote_groups,
     within_tolerance,
 )
 
@@ -91,11 +91,9 @@ def question_tag(result: InferenceResult, tolerance: float, mode: MatchMode) -> 
     if result.correct:
         return "vote_correct"
 
-    clusters = cluster_answers(answers, tolerance)
-    largest = max(len(c) for c in clusters)
-    correct_sizes = [
-        len(c) for c in clusters if matches_gold(sum(c) / len(c), gold, tolerance, mode)
-    ]
+    groups = vote_groups(answers, tolerance, mode)
+    largest = max(g.size for g in groups)
+    correct_sizes = [g.size for g in groups if matches_gold(g.value, gold, tolerance, mode)]
     if not correct_sizes:
         return "none_correct"
     return "tie_lost" if max(correct_sizes) == largest else "vote_lost"
