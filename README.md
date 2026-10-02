@@ -1,69 +1,55 @@
 # tts-finance
 
-A small, clean research framework for experimenting with **test-time / inference-time scaling** applied to financial reasoning.
+This repo is a framework for examining **test-time scaling** on financial reasoning: how much accuracy can be achieved by spending more inference compute per question (more samples, longer search, more verification) instead of using a bigger model.
 
-## Why test-time scaling
+For each question, a local LLM reads the table and text from a financial filing and writes a Python program that computes the answer. The program is run in a sandbox, and when you sample several programs per question, their answers are combined by majority vote. Accuracy, token use, and latency are recorded for every run, so you can compare strategies at different compute budgets. Failed samples are tagged with what went wrong (for example a syntax error, a timeout, or a bug in the harness itself).
 
-Test-time scaling — spending more inference compute per question (more samples, longer search, more verification) instead of a bigger model — has produced large accuracy gains on math and code benchmarks. Financial reasoning shares their structure: a question grounded in numeric context (a table, prose) where the reasoning can be expressed as an executable program and checked automatically. This repo is set up to measure whether that same lever works for finance.
+It supports the [FinQA](https://arxiv.org/abs/2109.00122) dataset, greedy and N-sample voting strategies, and local models through Transformers or MLX. Strategies, verifiers, datasets, and model backends can each be swapped out independently.
 
-**Current research question:**
+## Experimental setup
 
-> Does generating multiple executable reasoning paths improve financial reasoning accuracy as inference compute increases?
+Every run follows the same procedure: the model writes a program per question, the program is executed, and a strategy turns the samples into one answer. A run is fully defined by its config in `configs/`: strategy and sample count, model, dataset and subset size, and scoring mode. To isolate an effect, change one of these and keep the rest fixed, using the same `output.run_group` so the runs can be compared.
 
-The first experiment runs a local LLM on [FinQA](https://arxiv.org/abs/2109.00122), asking it to produce a Python program per question, executing that program, and voting across N independent samples (N = 1, 2, 4, 8, 16) to see how accuracy moves as a function of compute.
+Each run records accuracy, average tokens, average latency, average model calls, and per-sample failure tags. Specific values (which model, which N, how many questions) live in the configs, not in this README.
 
-## Repository structure
+## Quick start
 
-```text
-tts-finance/
-├── src/
-│   ├── models/
-│   │   └── local_llm.py         # LLM interface + local Transformers backend
-│   ├── tasks/
-│   │   ├── base.py              # Task interface, FinancialQuestion
-│   │   └── finqa.py             # FinQA loader + prompt construction
-│   ├── strategies/
-│   │   ├── base.py              # InferenceStrategy interface, response parsing
-│   │   ├── greedy.py            # N=1 baseline
-│   │   └── sampling.py          # N samples, majority vote
-│   ├── verifiers/
-│   │   ├── base.py              # Verifier interface
-│   │   └── python_executor.py   # sandboxed Python execution + comparison
-│   ├── evaluation/
-│   │   ├── metrics.py           # pure metric functions
-│   │   └── evaluator.py         # strategy-agnostic aggregation
-│   └── runner.py                # config -> model -> task -> strategy -> results
-│
-├── configs/
-│   └── baseline.yaml            # experiment configuration
-├── experiments/
-│   └── run_baseline.py          # CLI entrypoint
-├── results/                     # one JSON file per experiment run (gitignored)
-├── analysis/
-│   └── initial_analysis.ipynb   # loads results/, plots accuracy vs. compute
-└── tests/                       # pytest suite -- no GPU required
-```
-
-Every piece is swappable independently: a new strategy (best-of-N, search, adaptive compute) only needs to implement `InferenceStrategy.run`; a new verifier only needs `Verifier.verify`; a new dataset only needs `Task.load` + `Task.build_prompt`. The evaluator consumes `InferenceResult` objects and never knows which strategy produced them.
-
-## Installation
-
-Requires Python 3.11+ (this repo was set up against 3.12 via Homebrew — `brew install python@3.12` — since macOS ships 3.9 by default).
+Requires Python 3.11+ (macOS ships 3.9, so `brew install python@3.12`).
 
 ```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
+
+python experiments/run_baseline.py --config configs/baseline.yaml
 ```
 
-## The FinQA dataset
+The first run downloads FinQA and the model automatically. Results are written to `results/`.
 
-`FinQATask` loads [`wujian123/finqa`](https://huggingface.co/datasets/wujian123/finqa) from the Hugging Face Hub, a Parquet mirror of the original FinQA release with the paper's schema (`pre_text`, `post_text`, `table`, `qa.program`, `qa.exe_ans`). The original `dreamerdeo/finqa` and `ibm-research/finqa` repos rely on a Hugging Face "dataset script" loader that current versions of the `datasets` library refuse to execute — this mirror avoids that without changing the data.
+## Running experiments
 
-The dataset downloads and caches automatically (to `~/.cache/huggingface`) the first time it's used — no manual download step needed.
+### One run
 
-## Configuring the local model
+```bash
+python experiments/run_baseline.py --config configs/baseline.yaml
+```
+
+Each run loads the dataset and model, runs the configured strategy on every question, executes and verifies each generated program, and writes one timestamped JSON file to `results/<run_group>/`. Set `output.run_group` in the config to choose the folder. Existing result files are never overwritten.
+
+### Sweeping N
+
+Change one line in the config and rerun:
+
+```yaml
+strategy:
+  name: sampling
+  num_samples: 8   # was 4
+```
+
+For the accuracy-vs-compute curve, run N = 1 (`strategy.name: greedy`), then `sampling` with `num_samples` = 2, 4, 8, 16. Keep `dataset.max_examples` the same across the sweep and give every config the same `output.run_group`. Examples are in `configs/validation-20q/` and `configs/validation-200q/`.
+
+### Configuring the model
 
 Model, device, and dtype are set in the YAML config, never hard-coded:
 
@@ -76,40 +62,28 @@ model:
   max_new_tokens: 512
 ```
 
-`Qwen2.5-3B-Instruct` (~6GB in bf16) was chosen as the default for a 16GB-unified-memory Apple Silicon machine. If you hit an out-of-memory error, drop to a smaller model:
+| Situation | Setting |
+|---|---|
+| Default (16GB Apple Silicon, ~6GB in bf16) | `Qwen/Qwen2.5-3B-Instruct` |
+| Out of memory | `name: "Qwen/Qwen2.5-1.5B-Instruct"` |
+| Larger model on Apple Silicon | `backend: mlx` with a 4-bit build, e.g. `mlx-community/Qwen2.5-7B-Instruct-4bit` (see `configs/validation-200q-7b/`; needs `pip install mlx-lm`) |
+
+To add another backend (vLLM, a hosted API), implement `LLM.generate` in `src/models/`. Strategy and runner code don't change.
+
+### Scoring
+
+Answers are compared in `src/verifiers/matching.py` using the `verifier` block of the config:
 
 ```yaml
-model:
-  name: "Qwen/Qwen2.5-1.5B-Instruct"
+verifier:
+  timeout_seconds: 5
+  tolerance: 0.01            # relative tolerance
+  match_mode: percent_scale  # or: strict
 ```
 
-Swapping in a different backend later (vLLM, a hosted API) means implementing `LLM.generate` in `models/` — strategy and runner code don't change.
+FinQA stores some percentages as `24.69` and others as `0.935`, so no prompt can match both. The default `percent_scale` also accepts an answer that is the gold value ×100 or ÷100. Use `strict` for exact scale matching.
 
-## Running the first experiment
-
-```bash
-python experiments/run_baseline.py --config configs/baseline.yaml
-```
-
-This loads FinQA, loads the local model, runs the configured strategy over every question, executes and verifies each generated program, computes accuracy/token/latency metrics, and writes one timestamped JSON file to `results/` (existing result files are never overwritten).
-
-To sweep N, change one line in the config and rerun — nothing else needs to change:
-
-```yaml
-strategy:
-  name: sampling
-  num_samples: 8   # was 4
-```
-
-Sweep suggestion for the accuracy-vs-compute curve: N = 1 (use `strategy.name: greedy`), then `sampling` with `num_samples` = 2, 4, 8, 16, all against the same `dataset.max_examples` subset.
-
-## Running the tests
-
-```bash
-pytest tests/ -v
-```
-
-No GPU is required. `test_finqa_task.py` downloads a few FinQA examples from the Hub, so it needs network access; everything else (parsing, the verifier's sandboxed execution, sampling strategy logic, evaluation metrics) runs fully offline with a scripted fake `LLM`.
+Every failed sample is tagged with an `error_type` (for example `syntax_error`, `timeout`, `truncated`) and an `error_source` (`model` or `harness`), so you can tell model mistakes from pipeline bugs.
 
 ## Analyzing results
 
@@ -117,21 +91,61 @@ No GPU is required. `test_finqa_task.py` downloads a few FinQA examples from the
 jupyter lab analysis/initial_analysis.ipynb
 ```
 
-Run experiments at several values of N first (`results/` needs more than one JSON file), then the notebook plots accuracy vs. N, accuracy vs. total tokens, a comparison table across experiments, and surfaces specific trajectories: N=1 failures that N=8 fixes, examples where every sample failed, samples that disagreed, and cases where execution caught a stated-but-wrong answer.
+Run several values of N first, since the notebook's `RUN_GROUP` folder needs more than one JSON file. The notebook plots accuracy vs. N and accuracy vs. total tokens, and shows a comparison table across runs. It also pulls out specific cases:
 
-## Security note on the Python verifier
+- N=1 failures that N=8 fixes
+- Questions where every sample failed
+- Samples that disagreed
+- Cases where execution caught a stated-but-wrong answer
 
-`PythonExecutorVerifier` executes model-generated code in a separate subprocess (`python -I -S`, empty environment, restricted builtins, no `import`, no `open`/`eval`/`exec`, a wall-clock timeout, and — on POSIX — CPU/memory `rlimit`s). This is defense-in-depth for a research prototype, **not a hardened sandbox**. Don't point it at adversarial input without further isolation (a container or VM) — see the module docstring in `src/verifiers/python_executor.py` for specifics.
+The other notebooks in `analysis/` cover specific run groups (the 200-question set, the 7B vs. 3B comparison, and the fixed-verifier rerun).
 
-## Research roadmap
+## Testing
 
-```text
-Phase 1: Independent sampling               <- current
-Phase 2: Better selection (learned/verifier-weighted voting)
-Phase 3: Execution-guided search
-Phase 4: Adaptive compute allocation
-Phase 5: More realistic financial documents
-Phase 6: Additional datasets
+```bash
+pytest tests/ -v                      # full suite
+pytest tests/ -v -k "not finqa_task"  # skip the test that needs network access
 ```
 
-Deliberately out of scope for this version: MCTS, agent/multi-agent frameworks, PRMs, experiment tracking infra (W&B/MLflow), distributed or cloud inference, databases. These get added if and when an experiment's results motivate them.
+No GPU is required. Only `test_finqa_task.py` downloads data (a few FinQA examples from the Hub). Everything else runs offline with a scripted fake `LLM`.
+
+## How it fits together
+
+```text
+config.yaml -> runner.py -> model -> task -> strategy -> verifier -> evaluator -> results/*.json
+```
+
+```text
+src/
+├── models/        LLM interface + backends (local_llm.py: Transformers, mlx_llm.py: MLX)
+├── tasks/         Task interface + FinQA loader and prompt
+├── strategies/    greedy.py (N=1), sampling.py (N samples + majority vote)
+├── verifiers/     sandboxed Python execution (python_executor.py), answer comparison (matching.py)
+├── evaluation/    metrics.py, evaluator.py, diagnostics.py (failure tagging)
+└── runner.py      wires config -> model -> task -> strategy -> results
+configs/           experiment configs (baseline.yaml + one folder per sweep)
+experiments/       run_baseline.py (CLI entrypoint)
+analysis/          notebooks that read results/
+tests/             pytest suite
+```
+
+Each piece is swappable on its own:
+
+| To add a new... | Implement |
+|---|---|
+| Strategy (best-of-N, search, adaptive compute) | `InferenceStrategy.run` |
+| Verifier | `Verifier.verify` |
+| Dataset | `Task.load` + `Task.build_prompt` |
+| Model backend | `LLM.generate` |
+
+The evaluator only consumes `InferenceResult` objects and never knows which strategy produced them.
+
+## The FinQA dataset
+
+`FinQATask` loads [`wujian123/finqa`](https://huggingface.co/datasets/wujian123/finqa) from the Hugging Face Hub. It's a Parquet mirror of the original FinQA release with the paper's schema (`pre_text`, `post_text`, `table`, `qa.program`, `qa.exe_ans`). The original `dreamerdeo/finqa` and `ibm-research/finqa` repos rely on a "dataset script" loader that current `datasets` versions refuse to run, and this mirror avoids that without changing the data.
+
+The data downloads and caches to `~/.cache/huggingface` on first use. No manual download is needed.
+
+## Security note
+
+`PythonExecutorVerifier` runs model-generated code in a separate subprocess with an empty environment, restricted builtins, no `import` (except `math`), no `open`/`eval`/`exec`, a wall-clock timeout, and on POSIX, CPU and memory limits. This is defense-in-depth for a research prototype, **not a hardened sandbox**. Don't point it at adversarial input without further isolation (a container or VM). See the docstring in `src/verifiers/python_executor.py` for specifics.

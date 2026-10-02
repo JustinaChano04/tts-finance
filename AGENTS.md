@@ -12,7 +12,7 @@ A small research framework for testing whether **test-time / inference-time scal
 
 ```text
 src/
-├── models/local_llm.py      # LLM interface + local Transformers backend
+├── models/{local_llm,mlx_llm}.py  # LLM interface + Transformers backend / MLX (Apple Silicon) backend
 ├── tasks/{base,finqa}.py    # Task interface, FinancialQuestion, FinQA loader + prompt
 ├── strategies/{base,greedy,sampling}.py  # InferenceStrategy interface, N=1 / N-sample+vote
 ├── verifiers/{base,python_executor,matching}.py  # Verifier interface, sandboxed execution, answer comparison
@@ -21,7 +21,7 @@ src/
 
 configs/baseline.yaml        # experiment config (model/dataset/strategy/verifier/output)
 experiments/run_baseline.py  # CLI entrypoint
-results/                     # one JSON file per experiment run (gitignored)
+results/<run_group>/         # one JSON file per experiment run (gitignored); v0-legacy/ = pre-attribution runs
 analysis/initial_analysis.ipynb  # loads results/, plots accuracy vs. compute
 tests/                       # pytest suite, no GPU required
 data/                        # empty — see "Where the data actually lives" below
@@ -43,7 +43,7 @@ This is a Parquet **mirror** of the original FinQA release, used because the ori
 
 `tasks/finqa.py`'s `PROMPT_TEMPLATE` fixes the model's output format: `REASONING:` / fenced ` ```python ` `CODE:` / `ANSWER:`. `strategies/base.py::parse_model_response` regex-parses that exact shape (code comes from the first fenced block *after* `CODE:`, with any language tag stripped) and is deliberately lenient — it returns `None` for any section it can't find rather than raising, since malformed output is an expected, analysis-relevant outcome, not an error. Changing the prompt template without updating the parser regexes (or vice versa) breaks parsing silently.
 
-The extracted `code` must assign its result to a variable literally named `answer` — this is enforced by `verifiers/python_executor.py`'s execution wrapper, not the parser, so the contract spans two files. The prompt's "Rules for the code" (decimals for percentages, keep table units, only `import math`) are likewise enforced or scored elsewhere; keep them in sync with the executor's allowed subset.
+The extracted `code` must assign its result to a variable literally named `answer` — this is enforced by `verifiers/python_executor.py`'s execution wrapper, not the parser, so the contract spans two files. One leniency: if `answer` is never assigned and the code ends in a bare expression (notebook style), that expression is used and the sample is flagged `verification.recovered_from_expression`. The prompt's "Rules for the code" (decimals for percentages, keep table units, only `import math`) are likewise enforced or scored elsewhere; keep them in sync with the executor's allowed subset.
 
 **Error attribution.** Every failed sample carries `verification.error_type` (`no_code`, `truncated`, `syntax_error`, `safety_reject`, `runtime_error`, `timeout`, `no_answer_var`, `non_numeric`, `harness_error`) and `error_source` (`model` or `harness`). `harness_error` means our pipeline failed, not the model. `truncated` is decided in `strategies/base.py::generate_and_verify` from `GenerationResult.truncated` or an unclosed fence. When adding a failure path, give it a type rather than only a message string; `evaluation/diagnostics.py` tags samples from `error_type`.
 
@@ -56,15 +56,15 @@ The extracted `code` must assign its result to a variable literally named `answe
 
 It does not stop all resource exhaustion (e.g. a fork bomb where `RLIMIT_NPROC` isn't enforced) and relies on the AST check rather than OS-level blocking. **Don't point this at adversarial input without further isolation (container/VM).** Keep the module docstring in sync if you touch the safety checks.
 
-Answer comparison lives in one place, `verifiers/matching.py`: `within_tolerance` (`tolerance * max(abs(gold), 1.0)`), `matches_gold` (with `match_mode` `strict` or `percent_scale`, which also accepts gold×100 / gold÷100 but never unit factors), and `cluster_answers`. The verifier, `majority_vote`, and `evaluation/diagnostics.py` all use it; strategies score an aggregated answer via `Verifier.matches` so they inherit the configured `match_mode`. Note the clustering is a simple greedy one-pass sort, not true agglomerative clustering, so a chain of near-equal values can transitively merge even if the endpoints exceed tolerance from each other.
+Answer comparison lives in one place, `verifiers/matching.py`: `within_tolerance` (`tolerance * max(abs(gold), 1e-4)`, i.e. relative; the tiny floor only handles a gold of exactly 0), `matches_gold` (with `match_mode` `strict` or `percent_scale`, which also accepts gold×100 / gold÷100 but never unit factors), and `vote_groups`. The verifier, `majority_vote`, and `evaluation/diagnostics.py` all use it; strategies score an aggregated answer via `Verifier.matches` and vote with `Verifier.match_mode`, so they inherit the configured mode. `vote_groups` clusters answers greedily over sorted values (a simple one-pass sort, not true agglomerative clustering, so a chain of near-equal values can transitively merge), then in `percent_scale` mode merges clusters 100× apart; a group's value comes from its largest cluster, never a mean across scales. Ties between equally large groups go to the earliest-sampled one, not the smallest value.
 
 ## Results file shape
 
-Each `results/<experiment_id>.json` (never overwritten — `experiment_id` includes a uuid suffix):
+Each `results/<run_group>/<experiment_id>.json` (`output.run_group` in the config; omitted → directly in `results/`; never overwritten — `experiment_id` includes a uuid suffix):
 
 ```json
 {
-  "experiment_id": "sampling_n4_...", "timestamp": "...", "model": "...",
+  "experiment_id": "sampling_n4_...", "run_group": "validation-20q", "timestamp": "...", "model": "...",
   "dataset": "finqa:validation", "strategy": "sampling", "num_samples": 4, "temperature": 0.7,
   "max_new_tokens": 512, "verifier": {"timeout_seconds": 5.0, "tolerance": 0.01, "match_mode": "percent_scale"},
   "metrics": {"accuracy": 0.0, "average_tokens": 0.0, "average_latency": 0.0, "average_model_calls": 0.0, "num_examples": 0,
@@ -74,14 +74,14 @@ Each `results/<experiment_id>.json` (never overwritten — `experiment_id` inclu
 }
 ```
 
-`analysis/initial_analysis.ipynb` (`RESULTS_DIR = Path("../results")`, relative to the notebook) reads this shape directly — renaming any top-level or `metrics` key means updating the notebook's `summary`/`examples_df` construction too. Its disagreement/`all_failed` analysis only looks at trajectories where `verification.success == True`. Each example also stores `gold_answer`; results files written before it (and before `error_type`) can't be fully diagnosed and should be regenerated rather than compared with new runs.
+`analysis/initial_analysis.ipynb` (`RESULTS_DIR = Path("../results") / RUN_GROUP`, relative to the notebook) reads one run group at a time and reads this shape directly — renaming any top-level or `metrics` key means updating the notebook's `summary`/`examples_df` construction too. Its disagreement/`all_failed` analysis only looks at trajectories where `verification.success == True`. Each example also stores `gold_answer`; results files written before it (and before `error_type`) can't be fully diagnosed and should be regenerated rather than compared with new runs.
 
 ## For AI Agents
 
 ### Working in this repo
 - Config (`configs/*.yaml`, schema in `runner.py`'s pydantic models) is the source of truth for experiment parameters — don't hard-code them in source. Only `model` and `strategy` are required blocks; `dataset`/`verifier`/`output` fall back to defaults.
-- To sweep N for the accuracy-vs-compute curve, change only `strategy.num_samples` (or `strategy.name: greedy` for N=1) and keep `dataset.max_examples` fixed across the sweep.
-- Out of scope per the roadmap in `README.md`: MCTS, multi-agent frameworks, PRMs, experiment tracking infra (W&B/MLflow), distributed/cloud inference, databases.
+- To sweep N for the accuracy-vs-compute curve, change only `strategy.num_samples` (or `strategy.name: greedy` for N=1) and keep `dataset.max_examples` fixed across the sweep. Give every config in one sweep the same `output.run_group` (see `configs/validation-20q/`).
+- Out of scope for now (add only if an experiment's results motivate it): MCTS, multi-agent frameworks, PRMs, experiment tracking infra (W&B/MLflow), distributed/cloud inference, databases.
 
 ### Testing
 ```bash
