@@ -14,9 +14,10 @@ from pathlib import Path
 
 import yaml
 from pydantic import BaseModel
+from tqdm import tqdm
 
 from evaluation.evaluator import Evaluator
-from models.local_llm import LocalLLM
+from models.local_llm import LLM, LocalLLM
 from strategies.base import InferenceResult, InferenceStrategy
 from strategies.greedy import GreedyStrategy
 from strategies.sampling import SamplingStrategy
@@ -28,6 +29,8 @@ from verifiers.python_executor import PythonExecutorVerifier
 
 class ModelConfig(BaseModel):
     name: str
+    # "transformers" (torch, device/dtype apply) or "mlx" (Apple Silicon, mlx-lm).
+    backend: str = "transformers"
     device: str = "auto"
     dtype: str = "auto"
     temperature: float = 0.7
@@ -74,6 +77,18 @@ def load_config(config_path: str) -> ExperimentConfig:
     return ExperimentConfig(**raw)
 
 
+def build_model(cfg: ModelConfig) -> LLM:
+    if cfg.backend == "mlx":
+        from models.mlx_llm import MLXLLM
+
+        print(f"Loading model {cfg.name} (backend=mlx)...")
+        return MLXLLM(cfg.name)
+    if cfg.backend == "transformers":
+        print(f"Loading model {cfg.name} (device={cfg.device}, dtype={cfg.dtype})...")
+        return LocalLLM(cfg.name, device=cfg.device, dtype=cfg.dtype)
+    raise ValueError(f"unknown model backend: {cfg.backend}")
+
+
 def build_task(cfg: DatasetConfig) -> Task:
     if cfg.name == "finqa":
         return FinQATask(split=cfg.split, max_examples=cfg.max_examples)
@@ -102,10 +117,7 @@ def _result_to_dict(result: InferenceResult) -> dict:
 def run_experiment(config_path: str) -> Path:
     cfg = load_config(config_path)
 
-    print(
-        f"Loading model {cfg.model.name} (device={cfg.model.device}, dtype={cfg.model.dtype})..."
-    )
-    model = LocalLLM(cfg.model.name, device=cfg.model.device, dtype=cfg.model.dtype)
+    model = build_model(cfg.model)
 
     task = build_task(cfg.dataset)
     print(
@@ -122,13 +134,18 @@ def run_experiment(config_path: str) -> Path:
     strategy = build_strategy(cfg.strategy, cfg.model, cfg.verifier)
 
     results: list[InferenceResult] = []
-    for i, question in enumerate(questions, start=1):
+    progress = tqdm(questions, unit="q", dynamic_ncols=True)
+    num_correct = 0
+    for i, question in enumerate(progress, start=1):
         result = strategy.run(question, model, verifier, task.build_prompt)
         results.append(result)
+        num_correct += bool(result.correct)
         status = "correct" if result.correct else "incorrect"
-        print(
+        # tqdm.write keeps the bar intact and, unlike print, flushes immediately.
+        tqdm.write(
             f"[{i}/{len(questions)}] {question.id}: {status} (final_answer={result.final_answer})"
         )
+        progress.set_postfix(acc=f"{num_correct / i:.1%}")
 
     metrics = Evaluator(
         tolerance=cfg.verifier.tolerance, match_mode=cfg.verifier.match_mode
