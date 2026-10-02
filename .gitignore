@@ -9,7 +9,8 @@ build/
 data/*
 !data/.gitkeep
 
-results/*.json
+results/**/*.json
+results/**/*.log
 !results/.gitkeep
 
 .DS_Store

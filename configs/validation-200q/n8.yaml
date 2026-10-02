@@ -1,0 +1,24 @@
+model:
+  name: "Qwen/Qwen2.5-3B-Instruct"
+  device: "auto"
+  dtype: "auto"
+  temperature: 0.7
+  max_new_tokens: 512
+
+dataset:
+  name: finqa
+  split: validation
+  max_examples: 200
+
+strategy:
+  name: sampling
+  num_samples: 8
+
+verifier:
+  timeout_seconds: 5
+  tolerance: 0.01
+  match_mode: percent_scale
+
+output:
+  results_dir: results/
+  run_group: validation-200q
